@@ -26,3 +26,29 @@ Three modules to be implemented:
 
 3. Communication module
 	- At every step, each agent can broadcast a message encoded by `Message`.
+
+## Assessment Method
+
+Evaluation is based on three experiment configurations.
+
+- Number of agents: 6
+- Steps per experiment: 5000
+- Initial fuel per agent: 500
+- Repetitions: 10 runs for each configuration
+- Metric: average reward over the 10 runs
+
+### Configuration 1
+
+- Environment size: `50 x 50`
+- Average object creation rate: `NormalDistribution(mu=0.2, sigma=0.05)`
+- Object lifetime: `100`
+
+### Configuration 2
+
+- Environment size: `80 x 80`
+- Average object creation rate: `NormalDistribution(mu=2, sigma=0.5)`
+- Object lifetime: `30`
+
+### Configuration 3
+
+- Hidden configuration (used in assessment)
