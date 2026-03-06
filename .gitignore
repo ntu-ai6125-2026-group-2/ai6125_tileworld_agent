@@ -1,6 +1,12 @@
 # Compiled class file
 *.class
 
+# Build output directories
+bin/
+out/
+target/
+build/
+
 # Log file
 *.log
 
@@ -22,3 +28,19 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Eclipse project metadata
+.classpath
+.project
+.settings/
+
+# VS Code
+.vscode/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# OS-generated files
+.DS_Store
+Thumbs.db
