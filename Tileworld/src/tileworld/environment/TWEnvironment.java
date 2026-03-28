@@ -107,11 +107,15 @@ public class TWEnvironment extends SimState implements Steppable {
 
         schedule.scheduleRepeating(this, 1, 1.0);
         
-        //Now we create six agents
+        // Create 6 agents with a fixed 3/3 composition.
         Int2D pos;
-        for (int i = 1; i <= 6; i++) {
+        for (int i = 1; i <= 3; i++) {
             pos = this.generateRandomLocation();
-            createAgent(createConfiguredAgent("agent" + i, pos.getX(), pos.getY(), Parameters.defaultFuelLevel));
+            createAgent(createAgentByClass("tileworld.agent.ArdaTWAgent_v1", "agent" + i, pos.getX(), pos.getY(), Parameters.defaultFuelLevel));
+        }
+        for (int i = 4; i <= 6; i++) {
+            pos = this.generateRandomLocation();
+            createAgent(createAgentByClass("tileworld.agent.AmeyaGreedyBFSAgentWithMemory", "agent" + i, pos.getX(), pos.getY(), Parameters.defaultFuelLevel));
         }
         
 //        
@@ -123,9 +127,9 @@ public class TWEnvironment extends SimState implements Steppable {
 
     }
 
-    private TWAgent createConfiguredAgent(String name, int x, int y, double fuel) {
+    private TWAgent createAgentByClass(String className, String name, int x, int y, double fuel) {
         try {
-            Class<?> clazz = Class.forName("tileworld.agent.ArdaTWAgent_v1");
+            Class<?> clazz = Class.forName(className);
             return (TWAgent) clazz
                     .getConstructor(String.class, int.class, int.class, TWEnvironment.class, double.class)
                     .newInstance(name, x, y, this, fuel);

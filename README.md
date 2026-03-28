@@ -58,6 +58,7 @@ Evaluation is based on three experiment configurations.
 For a headless evaluation of Configuration 1 and Configuration 2, run `tileworld.AssessmentRunner` as a Java application.
 
 - File: `Tileworld/src/tileworld/AssessmentRunner.java`
+- Agent initialization mix (6 total): `3 x ArdaTWAgent_v1`, `3 x AmeyaGreedyBFSAgentWithMemory`
 - It executes `10` runs per configuration and `5000` steps per run.
 - It prints environment settings, run-level reward summaries, and aggregate statistics.
 - It reports per-agent metrics including reward, final fuel, refuel count, max carried tiles, fuel consumption, idle ratio, and ran-out-of-fuel counts.
