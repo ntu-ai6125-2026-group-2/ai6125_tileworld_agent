@@ -37,7 +37,8 @@ public class TWEnvironment extends SimState implements Steppable {
             "tileworld.agent.ArdaTWAgent_v1",
             "tileworld.agent.AmeyaGreedyBFSAgentWithMemory",
             "tileworld.agent.EricaMyTWAgent",
-            "tileworld.agent.HarshdeepPerimeterAgent"
+            "tileworld.agent.HarshdeepPerimeterAgent",
+            "tileworld.agent.BalalaZonePatrolAgent"
     };
 
 
@@ -114,7 +115,7 @@ public class TWEnvironment extends SimState implements Steppable {
 
         schedule.scheduleRepeating(this, 1, 1.0);
         
-        // Create 4 agents with one instance of each agent type.
+        // Create one instance of each agent type in DEFAULT_AGENT_CLASSES.
         Int2D pos;
         for (int i = 0; i < DEFAULT_AGENT_CLASSES.length; i++) {
             pos = this.generateRandomLocation();
@@ -137,7 +138,8 @@ public class TWEnvironment extends SimState implements Steppable {
                     .getConstructor(String.class, int.class, int.class, TWEnvironment.class, double.class)
                     .newInstance(name, x, y, this, fuel);
         } catch (ReflectiveOperationException e) {
-            System.err.println("Falling back to SimpleTWAgent for " + className + ": " + e.getMessage());
+            Throwable root = (e.getCause() != null) ? e.getCause() : e;
+            System.err.println("Falling back to SimpleTWAgent for " + className + ": " + root);
             return new SimpleTWAgent(name, x, y, this, fuel);
         }
     }
