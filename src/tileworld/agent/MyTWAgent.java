@@ -2,143 +2,167 @@ package tileworld.agent;
 
 import tileworld.Parameters;
 import tileworld.environment.*;
-import tileworld.planners.AstarPathGenerator;
-import tileworld.planners.TWPath;
-import tileworld.planners.TWPathStep;
 import tileworld.exceptions.CellBlockedException;
-import sim.util.Int2D;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * MyTWAgent: Final Integrated Version
+ * Features: Strip-based Zigzag search, Position Broadcasting, and Safe Grid Interaction.
+ */
 public class MyTWAgent extends TWAgent {
+
     private String name;
-    private TWPath currentPath = null;
+    private int fuelStationX = -1, fuelStationY = -1;
+    private int stripStartRow, stripEndRow, zigzagRow, zigzagCol;
+    private boolean goingRight = true;
+    private boolean fuelStationBroadcasted = false;
     
-    // Safety buffer reduced to 22% to maximize scoring time
-    private static final double FUEL_THRESHOLD_RATIO = 0.22;
-    private static final int CARRY_CAPACITY = 3;
+    // Static team score for TileworldMain compatibility
+    private static final AtomicInteger teamScore = new AtomicInteger(0);
+    public static void resetTeamScore() { 
+        teamScore.set(0); 
+    }
 
-    public static int fuelStationX = -1;
-    public static int fuelStationY = -1;
-    public static final Map<Int2D, Long> teamMemory = new ConcurrentHashMap<>();
-
-    public MyTWAgent(String name, int x, int y, TWEnvironment env, double fuel) {
-        super(x, y, env, fuel);
+    public MyTWAgent(String name, int xpos, int ypos, TWEnvironment env, double fuelLevel) {
+        super(xpos, ypos, env, fuelLevel);
         this.name = name;
+        setupZigzag(env);
     }
 
     @Override
-    public String getName() { return this.name; }
-
-    public static void resetTeamScore() {
-        fuelStationX = -1; fuelStationY = -1;
-        teamMemory.clear();
+    public String getName() {
+        return this.name;
     }
 
-    private void processMessages() {
-        List<Message> messages = this.getEnvironment().getMessages();
-        for (Message m : messages) {
-            if (m instanceof ArdaMessage) {
-                ArdaMessage am = (ArdaMessage) m;
-                if (am.getEntityType().equalsIgnoreCase("FuelStation")) {
-                    fuelStationX = am.getX();
-                    fuelStationY = am.getY();
-                }
-            } else if (m.getMessage().startsWith("FUEL:")) { // Listen to BenTWAgent
-                String[] parts = m.getMessage().substring(5).split(",");
-                fuelStationX = Integer.parseInt(parts[0]);
-                fuelStationY = Integer.parseInt(parts[1]);
-            }
+    /**
+     * MANUAL DIRECTION LOGIC
+     * Replaces the missing getDirectionTo method in some TWEnvironment versions
+     */
+    private TWDirection getDirTo(int tx, int ty) {
+        if (tx > getX()) return TWDirection.E;
+        if (tx < getX()) return TWDirection.W;
+        if (ty > getY()) return TWDirection.S;
+        if (ty < getY()) return TWDirection.N;
+        return TWDirection.Z;
+    }
+
+    @Override
+    public void communicate() {
+        // 1. Broadcast fuel station location to all
+        if (fuelStationX != -1 && !fuelStationBroadcasted) {
+            this.getEnvironment().receiveMessage(new Message(this.name, "all", "f:" + fuelStationX + "," + fuelStationY));
+            fuelStationBroadcasted = true;
         }
+
+        // 2. PositionMessage Protocol: Broadcast position and tiles for coordination
+        String payload = "POS:" + getX() + "," + getY() + ";TILES:" + carriedTiles.size();
+        this.getEnvironment().receiveMessage(new Message(this.name, "*", payload));
     }
 
     @Override
     protected TWThought think() {
-        processMessages();
-        updatePerception();
+        this.sense();
+        readMessages();
 
-        double fuelRatio = getFuelLevel() / Parameters.defaultFuelLevel;
-        if (fuelRatio < FUEL_THRESHOLD_RATIO && fuelStationX != -1) {
-            if ((int)getX() == fuelStationX && (int)getY() == fuelStationY)
-                return new TWThought(TWAction.REFUEL, TWDirection.Z);
-            return navigateTo(fuelStationX, fuelStationY);
-        }
-
-        // Logic for picking up/dropping off based on capacity
-        Object here = getEnvironment().getObjectGrid().get((int)getX(), (int)getY());
-        if (here instanceof TWTile && carriedTiles.size() < CARRY_CAPACITY)
-            return new TWThought(TWAction.PICKUP, TWDirection.Z);
-        if (here instanceof TWHole && !carriedTiles.isEmpty())
-            return new TWThought(TWAction.PUTDOWN, TWDirection.Z);
-
-        if (currentPath == null || !currentPath.hasNext()) {
-            Int2D target = findBestTarget();
-            if (target != null) {
-                // Signal intention to prevent team clumping
-                this.getEnvironment().receiveMessage(ArdaMessage.intention(this.name, "Goal", target.x, target.y, (int)getX(), (int)getY()));
-                currentPath = getPathTo(target.x, target.y);
+        // 1. REFUELING (High Priority)
+        if (fuelStationX != -1) {
+            double dist = Math.abs(getX() - fuelStationX) + Math.abs(getY() - fuelStationY);
+            if (this.fuelLevel < (dist * 2 + 40)) {
+                return new TWThought(TWAction.MOVE, getDirTo(fuelStationX, fuelStationY));
             }
         }
-        return followPath();
+
+        // 2. TARGETING (Tiles if empty, Holes if full)
+        TWEntity target = null;
+        if (this.carriedTiles.size() >= 3) {
+            target = this.memory.getNearbyHole(getX(), getY(), 15);
+        } else {
+            target = this.memory.getNearbyTile(getX(), getY(), 15);
+        }
+
+        if (target != null) {
+            return new TWThought(TWAction.MOVE, getDirTo(target.getX(), target.getY()));
+        }
+
+        // 3. EXPLORATION (Zigzag)
+        return executeZigzag();
     }
 
-    private void updatePerception() {
-        int r = Parameters.defaultSensorRange;
-        for (int i = -r; i <= r; i++) {
-            for (int j = -r; j <= r; j++) {
-                int tx = (int)getX() + i, ty = (int)getY() + j;
-                if (!getEnvironment().isInBounds(tx, ty)) continue;
-                Object o = getEnvironment().getObjectGrid().get(tx, ty);
-                if (o instanceof TWFuelStation) {
-                    fuelStationX = tx; fuelStationY = ty;
-                    this.getEnvironment().receiveMessage(new Message(this.name, null, "FUEL:" + tx + "," + ty));
-                } else if (o instanceof TWHole || o instanceof TWTile) {
-                    teamMemory.put(new Int2D(tx, ty), getEnvironment().schedule.getSteps());
-                }
+    private void readMessages() {
+        for (Object o : getEnvironment().getMessages()) {
+            if (!(o instanceof Message)) continue;
+            Message msg = (Message) o;
+            String text = msg.getMessage();
+            
+            if (text != null && text.startsWith("f:")) {
+                try {
+                    String[] p = text.substring(2).split(",");
+                    this.fuelStationX = Integer.parseInt(p[0]);
+                    this.fuelStationY = Integer.parseInt(p[1]);
+                } catch (Exception e) {}
             }
         }
     }
 
-    private Int2D findBestTarget() {
-        Int2D best = null; double minSafeDist = Double.MAX_VALUE;
-        Class<?> goal = (carriedTiles.size() >= CARRY_CAPACITY) ? TWHole.class : TWTile.class;
-        for (Int2D pos : teamMemory.keySet()) {
-            Object o = getEnvironment().getObjectGrid().get(pos.x, pos.y);
-            if (o != null && o.getClass().equals(goal)) {
-                double d = pos.distance(getX(), getY());
-                if (d < minSafeDist) { minSafeDist = d; best = pos; }
-            }
+    private void setupZigzag(TWEnvironment env) {
+        int agentNum = Math.abs(name.hashCode()) % 6; 
+        int totalRows = env.getyDimension(); 
+        int stripSize = Math.max(1, totalRows / 6); 
+        this.stripStartRow = agentNum * stripSize;
+        this.stripEndRow = (agentNum == 5) ? totalRows - 1 : (agentNum + 1) * stripSize - 1;
+        this.zigzagRow = stripStartRow;
+        this.zigzagCol = 0;
+    }
+
+    private TWThought executeZigzag() {
+        if (getX() == zigzagCol && getY() == zigzagRow) advanceZigzag();
+        return new TWThought(TWAction.MOVE, getDirTo(zigzagCol, zigzagRow));
+    }
+
+    private void advanceZigzag() {
+        int mapW = getEnvironment().getxDimension();
+        if (goingRight) {
+            zigzagCol++;
+            if (zigzagCol >= mapW) { zigzagCol = mapW - 1; zigzagRow++; goingRight = false; }
+        } else {
+            zigzagCol--;
+            if (zigzagCol < 0) { zigzagCol = 0; zigzagRow++; goingRight = true; }
         }
-        return best;
-    }
-
-    private TWThought navigateTo(int x, int y) {
-        currentPath = getPathTo(x, y);
-        return followPath();
-    }
-
-    private TWThought followPath() {
-        if (currentPath == null || !currentPath.hasNext()) return new TWThought(TWAction.MOVE, TWDirection.Z);
-        TWPathStep next = currentPath.popNext();
-        return new TWThought(TWAction.MOVE, next.getDirection());
-    }
-
-    private TWPath getPathTo(int x, int y) {
-        return new AstarPathGenerator(getEnvironment(), this, 2000).findPath((int)getX(), (int)getY(), x, y);
+        if (zigzagRow > stripEndRow) zigzagRow = stripStartRow;
     }
 
     @Override
-    protected void act(TWThought t) {
+    protected void act(TWThought thought) {
         try {
-            switch(t.getAction()){
-                case MOVE: move(t.getDirection()); break;
-                case REFUEL: refuel(); break;
-                case PICKUP: pickUpTile((TWTile)getEnvironment().getObjectGrid().get((int)getX(),(int)getY())); break;
-                case PUTDOWN: putTileInHole((TWHole)getEnvironment().getObjectGrid().get((int)getX(),(int)getY())); break;
+            // Check for Fuel Station
+            if (this.getEnvironment().inFuelStation(this)) {
+                this.refuel();
+                this.fuelStationX = getX();
+                this.fuelStationY = getY();
+            }
+
+            // SAFE GRID INTERACTION: Use instanceof to prevent ClassCastException
+            Object gridObject = getEnvironment().getObjectGrid().get(getX(), getY());
+
+            if (gridObject instanceof TWTile) {
+                TWTile tile = (TWTile) gridObject;
+                if (carriedTiles.size() < 3) {
+                    this.pickUpTile(tile);
+                }
+            } else if (gridObject instanceof TWHole) {
+                TWHole hole = (TWHole) gridObject;
+                if (hasTile()) {
+                    this.putTileInHole(hole);
+                    teamScore.incrementAndGet();
+                }
+            }
+
+            // Execute Movement
+            if (thought != null && thought.getAction() == TWAction.MOVE) {
+                this.move(thought.getDirection());
             }
         } catch (CellBlockedException e) {
-            this.currentPath = null;
+            // Path blocked, handle in next tick
         }
     }
 }
