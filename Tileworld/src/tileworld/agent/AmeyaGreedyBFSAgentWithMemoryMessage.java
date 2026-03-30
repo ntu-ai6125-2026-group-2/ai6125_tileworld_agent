@@ -33,6 +33,8 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
     private int fuelStationX = -1;
     private int fuelStationY = -1;
 
+    private Phase1Strategy phase1;
+
     private int[] pendingDeleteTile = null; // confirmed pickup last act()
     private int[] pendingDeleteHole = null; // confirmed putdown last act()
     private int[] pendingInfoTile   = null; // saw tile but couldn't pick up
@@ -43,17 +45,18 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
         super(xpos, ypos, env, fuelLevel);
         this.name = name;
 
-        this.customMemory = new CustomTWAgentMemory(
-                this, env.schedule,
-                env.getxDimension(), env.getyDimension());
+        this.customMemory = new CustomTWAgentMemory(this, env.schedule, env.getxDimension(), env.getyDimension());
         this.memory = customMemory;
 
-        this.pathGenerator = new GreedyBFSPathGenerator(
-                env, this, env.getxDimension() * env.getyDimension());
+        this.pathGenerator = new GreedyBFSPathGenerator(env, this, env.getxDimension() * env.getyDimension());
+
+        this.phase1 = new Phase1Strategy(this);
     }
 
     @Override
     public void communicate() {
+
+        phase1.communicate();
 
         // --- STEP 1: Process incoming ArdaMessages from other agents ---
         for (Message raw : getEnvironment().getMessages()) {
@@ -158,6 +161,20 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
 
     @Override
     protected TWThought think() {
+        if (!phase1.isComplete()) {
+            TWThought t = phase1.think();
+            if (t != null) return t;
+            // Phase 1 just completed; fall through to Phase 2
+        }
+        // Sync fuel station from Phase 1 result (once)
+        if (fuelStationX == -1 && phase1.getFuelStation() != null) {
+            fuelStationX = phase1.getFuelStation().x;
+            fuelStationY = phase1.getFuelStation().y;
+        }
+        return customThink();
+    }
+    
+    protected TWThought customThink() {
 
         locateFuelStation();
 
