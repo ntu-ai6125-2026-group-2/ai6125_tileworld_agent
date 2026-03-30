@@ -174,7 +174,7 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
         return customThink();
     }
     
-    protected TWThought customThink() {
+    private TWThought customThink() {
 
         locateFuelStation();
 
