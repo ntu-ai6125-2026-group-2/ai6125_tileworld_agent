@@ -253,7 +253,7 @@ public class BalalaZonePatrolAgent extends TWAgent {
 
         // 4. Full carry → nearest valid unclaimed hole
         if (carriedTiles.size() == CARRY_CAPACITY) {
-            CustomTWAgentMemory.MemoryEntry hole =
+            BalalaCustomTWAgentMemory.MemoryEntry hole =
                     nearestValidYieldedHole(ax, ay);
             if (hole != null) {
                 return new TWThought(TWAction.MOVE, pathTo(hole.x, hole.y));
@@ -262,7 +262,7 @@ public class BalalaZonePatrolAgent extends TWAgent {
         }
 
         // 5. Scored target with yield check
-        CustomTWAgentMemory.MemoryEntry target =
+        BalalaCustomTWAgentMemory.MemoryEntry target =
                 selectTarget(ax, ay, earlyPhase);
         if (target != null) {
             return new TWThought(TWAction.MOVE, pathTo(target.x, target.y));
@@ -402,18 +402,18 @@ public class BalalaZonePatrolAgent extends TWAgent {
     // ---------------------------------------------------------------
     // TARGET SELECTION
     // ---------------------------------------------------------------
-    private CustomTWAgentMemory.MemoryEntry selectTarget(
+    private BalalaCustomTWAgentMemory.MemoryEntry selectTarget(
             int ax, int ay, boolean earlyPhase) {
 
-        List<CustomTWAgentMemory.MemoryEntry> tiles = customMemory.getKnownTiles();
-        List<CustomTWAgentMemory.MemoryEntry> holes = customMemory.getKnownHoles();
+        List<BalalaCustomTWAgentMemory.MemoryEntry> tiles = customMemory.getKnownTiles();
+        List<BalalaCustomTWAgentMemory.MemoryEntry> holes = customMemory.getKnownHoles();
 
         reScore(tiles, ax, ay);
         reScore(holes, ax, ay);
 
-        CustomTWAgentMemory.MemoryEntry bestTile =
+        BalalaCustomTWAgentMemory.MemoryEntry bestTile =
                 bestYieldedEntry(tiles, true, ax, ay);
-        CustomTWAgentMemory.MemoryEntry bestHole =
+        BalalaCustomTWAgentMemory.MemoryEntry bestHole =
                 bestYieldedValidEntry(holes, ax, ay);
 
         int carried = carriedTiles.size();
@@ -435,12 +435,12 @@ public class BalalaZonePatrolAgent extends TWAgent {
         return bestTile;
     }
 
-    private CustomTWAgentMemory.MemoryEntry bestYieldedEntry(
-            List<CustomTWAgentMemory.MemoryEntry> list,
+    private BalalaCustomTWAgentMemory.MemoryEntry bestYieldedEntry(
+            List<BalalaCustomTWAgentMemory.MemoryEntry> list,
             boolean isTile, int ax, int ay) {
-        CustomTWAgentMemory.MemoryEntry best = null;
+        BalalaCustomTWAgentMemory.MemoryEntry best = null;
         for (int i = 0; i < list.size(); i++) {
-            CustomTWAgentMemory.MemoryEntry e = list.get(i);
+            BalalaCustomTWAgentMemory.MemoryEntry e = list.get(i);
             int myDist = (int) manhattan(ax, ay, e.x, e.y);
             if (isTile  && teammateCloserForTile(e.x, e.y, myDist)) continue;
             if (!isTile && teammateCloserForHole(e.x, e.y, myDist)) continue;
@@ -449,13 +449,13 @@ public class BalalaZonePatrolAgent extends TWAgent {
         return best;
     }
 
-    private CustomTWAgentMemory.MemoryEntry bestYieldedValidEntry(
-            List<CustomTWAgentMemory.MemoryEntry> list, int ax, int ay) {
-        CustomTWAgentMemory.MemoryEntry best = null;
-        List<CustomTWAgentMemory.MemoryEntry> stale =
-                new ArrayList<CustomTWAgentMemory.MemoryEntry>();
+    private BalalaCustomTWAgentMemory.MemoryEntry bestYieldedValidEntry(
+            List<BalalaCustomTWAgentMemory.MemoryEntry> list, int ax, int ay) {
+        BalalaCustomTWAgentMemory.MemoryEntry best = null;
+        List<BalalaCustomTWAgentMemory.MemoryEntry> stale =
+                new ArrayList<BalalaCustomTWAgentMemory.MemoryEntry>();
         for (int i = 0; i < list.size(); i++) {
-            CustomTWAgentMemory.MemoryEntry e = list.get(i);
+            BalalaCustomTWAgentMemory.MemoryEntry e = list.get(i);
             TWEntity obj = (TWEntity) getEnvironment()
                     .getObjectGrid().get(e.x, e.y);
             if (!(obj instanceof TWHole)) { stale.add(e); continue; }
@@ -469,15 +469,15 @@ public class BalalaZonePatrolAgent extends TWAgent {
         return best;
     }
 
-    private CustomTWAgentMemory.MemoryEntry nearestValidYieldedHole(
+    private BalalaCustomTWAgentMemory.MemoryEntry nearestValidYieldedHole(
             int ax, int ay) {
-        List<CustomTWAgentMemory.MemoryEntry> holes = customMemory.getKnownHoles();
-        CustomTWAgentMemory.MemoryEntry nearest = null;
+        List<BalalaCustomTWAgentMemory.MemoryEntry> holes = customMemory.getKnownHoles();
+        BalalaCustomTWAgentMemory.MemoryEntry nearest = null;
         double minDist = Double.MAX_VALUE;
-        List<CustomTWAgentMemory.MemoryEntry> stale =
-                new ArrayList<CustomTWAgentMemory.MemoryEntry>();
+        List<BalalaCustomTWAgentMemory.MemoryEntry> stale =
+                new ArrayList<BalalaCustomTWAgentMemory.MemoryEntry>();
         for (int i = 0; i < holes.size(); i++) {
-            CustomTWAgentMemory.MemoryEntry e = holes.get(i);
+            BalalaCustomTWAgentMemory.MemoryEntry e = holes.get(i);
             TWEntity obj = (TWEntity) getEnvironment()
                     .getObjectGrid().get(e.x, e.y);
             if (!(obj instanceof TWHole)) { stale.add(e); continue; }
@@ -491,13 +491,13 @@ public class BalalaZonePatrolAgent extends TWAgent {
         return nearest;
     }
 
-    private void reScore(List<CustomTWAgentMemory.MemoryEntry> list,
+    private void reScore(List<BalalaCustomTWAgentMemory.MemoryEntry> list,
                          int ax, int ay) {
         double now  = getEnvironment().schedule.getTime();
         double maxD = getEnvironment().getxDimension()
                     + getEnvironment().getyDimension();
         for (int i = 0; i < list.size(); i++) {
-            CustomTWAgentMemory.MemoryEntry e = list.get(i);
+            BalalaCustomTWAgentMemory.MemoryEntry e = list.get(i);
             double age       = now - e.timestamp;
             double recency   = 1.0 / (1.0 + age);
             double dist      = manhattan(ax, ay, e.x, e.y);
