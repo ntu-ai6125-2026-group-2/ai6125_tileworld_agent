@@ -84,7 +84,7 @@ public class BalalaZonePatrolAgent extends TWAgent {
     // ---------------------------------------------------------------
     private final String             name;
     private final AstarPathGenerator pathGenerator;
-    private CustomTWAgentMemory      customMemory;
+    private BalalaCustomTWAgentMemory      customMemory;
     private final Phase1Strategy     phase1;
 
     /** True when Phase 1 is done (found station OR timed out). */
@@ -108,7 +108,7 @@ public class BalalaZonePatrolAgent extends TWAgent {
         super(xpos, ypos, env, fuelLevel);
         this.name = name;
 
-        this.customMemory = new CustomTWAgentMemory(
+        this.customMemory = new BalalaCustomTWAgentMemory(
                 this, env.schedule,
                 env.getxDimension(), env.getyDimension());
         this.memory = customMemory;
