@@ -28,7 +28,7 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
 
     private final String name;
     private final GreedyBFSPathGenerator pathGenerator;
-    private final CustomTWAgentMemory customMemory;
+    private final AmeyaCustomTWAgentMemory customMemory;
 
     private int fuelStationX = -1;
     private int fuelStationY = -1;
@@ -44,7 +44,7 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
         super(xpos, ypos, env, fuelLevel);
         this.name = name;
 
-        this.customMemory = new CustomTWAgentMemory(
+        this.customMemory = new AmeyaCustomTWAgentMemory(
                 this, env.schedule,
                 env.getxDimension(), env.getyDimension());
         this.memory = customMemory;
@@ -190,7 +190,7 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
             }
         }
 
-        CustomTWAgentMemory.MemoryEntry target = selectTarget();
+        AmeyaCustomTWAgentMemory.MemoryEntry target = selectTarget();
         if (target != null) {
             return new TWThought(TWAction.MOVE,
                     getPathDirection(target.x, target.y));
@@ -240,12 +240,12 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
     }
 
 
-    private CustomTWAgentMemory.MemoryEntry selectTarget() {
-        List<CustomTWAgentMemory.MemoryEntry> tiles = customMemory.getKnownTiles();
-        List<CustomTWAgentMemory.MemoryEntry> holes = customMemory.getKnownHoles();
+    private AmeyaCustomTWAgentMemory.MemoryEntry selectTarget() {
+        List<AmeyaCustomTWAgentMemory.MemoryEntry> tiles = customMemory.getKnownTiles();
+        List<AmeyaCustomTWAgentMemory.MemoryEntry> holes = customMemory.getKnownHoles();
 
-        CustomTWAgentMemory.MemoryEntry bestTile = bestEntry(tiles);
-        CustomTWAgentMemory.MemoryEntry bestHole = bestEntry(holes);
+        AmeyaCustomTWAgentMemory.MemoryEntry bestTile = bestEntry(tiles);
+        AmeyaCustomTWAgentMemory.MemoryEntry bestHole = bestEntry(holes);
 
         int carried = carriedTiles.size();
 
@@ -269,10 +269,10 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
         return bestTile;
     }
 
-    private CustomTWAgentMemory.MemoryEntry bestEntry(
-            List<CustomTWAgentMemory.MemoryEntry> entries) {
-        CustomTWAgentMemory.MemoryEntry best = null;
-        for (CustomTWAgentMemory.MemoryEntry e : entries) {
+    private AmeyaCustomTWAgentMemory.MemoryEntry bestEntry(
+            List<AmeyaCustomTWAgentMemory.MemoryEntry> entries) {
+        AmeyaCustomTWAgentMemory.MemoryEntry best = null;
+        for (AmeyaCustomTWAgentMemory.MemoryEntry e : entries) {
             if (best == null || e.utility > best.utility) best = e;
         }
         return best;
