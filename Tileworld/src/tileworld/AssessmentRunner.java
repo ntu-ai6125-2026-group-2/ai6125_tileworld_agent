@@ -97,9 +97,19 @@ public class AssessmentRunner {
     public static void main(String[] args) {
         Config config1 = new Config("Configuration 1", 50, 50, 0.2, 0.05, 100, 500, 6);
         Config config2 = new Config("Configuration 2", 80, 80, 2.0, 0.5, 30, 500, 6);
+        Config explorationConfig1 = new Config("Exploration Config 30x30", 30, 30, 0.2, 0.05, 100, 500, 6);
+        Config explorationConfig2 = new Config("Exploration Config 100x100", 100, 100, 0.2, 0.05, 100, 500, 6);
+        Config explorationConfig3 = new Config("Exploration Config 120x120", 120, 120, 0.2, 0.05, 100, 500, 6);
+        Config explorationConfig4 = new Config("Exploration Config 150x150", 150, 150, 0.2, 0.05, 100, 500, 6);
+        Config explorationConfig5 = new Config("Exploration Config 200x200", 200, 200, 0.2, 0.05, 100, 500, 6);
 
         runConfiguration(config1);
         runConfiguration(config2);
+        runConfiguration(explorationConfig1);
+        runConfiguration(explorationConfig2);
+        runConfiguration(explorationConfig3);
+        runConfiguration(explorationConfig4);
+        runConfiguration(explorationConfig5);
     }
 
     private static void runConfiguration(Config config) {
