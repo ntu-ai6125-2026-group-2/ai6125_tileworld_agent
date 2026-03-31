@@ -9,7 +9,7 @@ import tileworld.environment.TWFuelStation;
 import tileworld.environment.TWHole;
 import tileworld.environment.TWTile;
 import tileworld.exceptions.CellBlockedException;
-import tileworld.planners.GreedyBFSPathGenerator;
+import tileworld.planners.AmeyaGreedyBFSPathGenerator;
 import tileworld.planners.TWPath;
 import tileworld.planners.TWPathStep;
 
@@ -28,7 +28,7 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
     private static final double CARRY_BIAS_DISTANCE        = 5.0;
 
     private final String name;
-    private final GreedyBFSPathGenerator pathGenerator;
+    private final AmeyaGreedyBFSPathGenerator pathGenerator;
     private final AmeyaCustomTWAgentMemory customMemory;
 
     private int fuelStationX = -1;
@@ -50,7 +50,7 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
                 env.getxDimension(), env.getyDimension());
         this.memory = customMemory;
 
-        this.pathGenerator = new GreedyBFSPathGenerator(
+        this.pathGenerator = new AmeyaGreedyBFSPathGenerator(
                 env, this, env.getxDimension() * env.getyDimension());
     }
 
