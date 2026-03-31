@@ -202,7 +202,6 @@ public class ArdaTWAgent_v1 extends TWAgent {
                     ArdaMessage.info(this.getName(), TYPE_HOLE, seenHole.getX(), seenHole.getY(), this.getX(), this.getY()));
         }
 
-        locateFuelStation();
         if (fuelX >= 0 && fuelY >= 0) {
             this.getEnvironment().receiveMessage(
                     ArdaMessage.info(this.getName(), TYPE_FUEL, fuelX, fuelY, this.getX(), this.getY()));
@@ -250,27 +249,7 @@ public class ArdaTWAgent_v1 extends TWAgent {
             updateKnowledge(TYPE_HOLE, holeFromMemory.getX(), holeFromMemory.getY());
         }
 
-        locateFuelStation();
         pruneInvalidKnowledge();
-    }
-
-    private void locateFuelStation() {
-        if (fuelX >= 0 && fuelY >= 0) {
-            return;
-        }
-
-        int maxX = this.getEnvironment().getxDimension();
-        int maxY = this.getEnvironment().getyDimension();
-        for (int x = 0; x < maxX; x++) {
-            for (int y = 0; y < maxY; y++) {
-                Object obj = this.getEnvironment().getObjectGrid().get(x, y);
-                if (obj instanceof TWFuelStation) {
-                    fuelX = x;
-                    fuelY = y;
-                    return;
-                }
-            }
-        }
     }
 
     private void pruneInvalidKnowledge() {
