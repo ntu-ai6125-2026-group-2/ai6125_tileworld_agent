@@ -13,6 +13,7 @@ import tileworld.planners.GreedyBFSPathGenerator;
 import tileworld.planners.TWPath;
 import tileworld.planners.TWPathStep;
 
+
 public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
 
     private static final String ENTITY_TILE        = "tile";
@@ -20,9 +21,9 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
     private static final String ENTITY_FUEL        = "fuel";
     private static final String ENTITY_DELETE_TILE = "delete_tile";
     private static final String ENTITY_DELETE_HOLE = "delete_hole";
-
-    private static final double FUEL_THRESHOLD_RATIO       = 0.20;
     private static final double FUEL_UNKNOWN_STATION_RATIO = 0.30;
+
+    private static final double FUEL_SAFETY_BUFFER = Parameters.defaultFuelLevel * 0.20;
     private static final int    CARRY_CAPACITY             = 3;
     private static final double CARRY_BIAS_DISTANCE        = 5.0;
 
@@ -33,41 +34,36 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
     private int fuelStationX = -1;
     private int fuelStationY = -1;
 
-    private Phase1Strategy phase1;
-
     private int[] pendingDeleteTile = null; // confirmed pickup last act()
     private int[] pendingDeleteHole = null; // confirmed putdown last act()
     private int[] pendingInfoTile   = null; // saw tile but couldn't pick up
     private int[] pendingInfoHole   = null; // saw hole but couldn't fill
+
 
     public AmeyaGreedyBFSAgentWithMemoryMessage(String name, int xpos, int ypos,
                                             TWEnvironment env, double fuelLevel) {
         super(xpos, ypos, env, fuelLevel);
         this.name = name;
 
-        this.customMemory = new CustomTWAgentMemory(this, env.schedule, env.getxDimension(), env.getyDimension());
+        this.customMemory = new CustomTWAgentMemory(
+                this, env.schedule,
+                env.getxDimension(), env.getyDimension());
         this.memory = customMemory;
 
-        this.pathGenerator = new GreedyBFSPathGenerator(env, this, env.getxDimension() * env.getyDimension());
-
-        this.phase1 = new Phase1Strategy(this);
+        this.pathGenerator = new GreedyBFSPathGenerator(
+                env, this, env.getxDimension() * env.getyDimension());
     }
+
 
     @Override
     public void communicate() {
 
-        phase1.communicate();
-
-        // --- STEP 1: Process incoming ArdaMessages from other agents ---
         for (Message raw : getEnvironment().getMessages()) {
-            // Skip own messages
             if (getName().equals(raw.getFrom())) continue;
-            // Only process ArdaMessage instances
             if (!(raw instanceof ArdaMessage)) continue;
 
             ArdaMessage msg = (ArdaMessage) raw;
 
-            // We only handle INFO type - INTENTION is used by other team members
             if (msg.getType() != ArdaMessage.MessageType.INFO) continue;
 
             String entity = msg.getEntityType();
@@ -75,40 +71,33 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
             int my = msg.getY();
 
             if (ENTITY_TILE.equals(entity)) {
-                // Another agent saw a tile it couldn't pick up - add to memory
                 addTileToMemory(mx, my);
 
             } else if (ENTITY_HOLE.equals(entity)) {
-                // Another agent saw a hole it couldn't fill - add to memory
                 addHoleToMemory(mx, my);
 
             } else if (ENTITY_FUEL.equals(entity)) {
-                // Another agent found the fuel station - store it
                 if (fuelStationX == -1) {
                     fuelStationX = mx;
                     fuelStationY = my;
                 }
 
             } else if (ENTITY_DELETE_TILE.equals(entity)) {
-                // Another agent picked up a tile - remove from memory
                 customMemory.removeTrackedTile(mx, my);
                 customMemory.removeAgentPercept(mx, my);
 
             } else if (ENTITY_DELETE_HOLE.equals(entity)) {
-                // Another agent filled a hole - remove from memory
                 customMemory.removeTrackedHole(mx, my);
                 customMemory.removeAgentPercept(mx, my);
             }
         }
 
-        // --- STEP 2: Broadcast confirmed DELETEs from previous act() ---
         if (pendingDeleteTile != null) {
             broadcast(ArdaMessage.info(
                     getName(),
                     ENTITY_DELETE_TILE,
                     pendingDeleteTile[0], pendingDeleteTile[1],
                     getX(), getY()));
-            // Apply to own memory too
             customMemory.removeTrackedTile(pendingDeleteTile[0], pendingDeleteTile[1]);
             customMemory.removeAgentPercept(pendingDeleteTile[0], pendingDeleteTile[1]);
             pendingDeleteTile = null;
@@ -120,20 +109,17 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
                     ENTITY_DELETE_HOLE,
                     pendingDeleteHole[0], pendingDeleteHole[1],
                     getX(), getY()));
-            // Apply to own memory too
             customMemory.removeTrackedHole(pendingDeleteHole[0], pendingDeleteHole[1]);
             customMemory.removeAgentPercept(pendingDeleteHole[0], pendingDeleteHole[1]);
             pendingDeleteHole = null;
         }
 
-        // --- STEP 3: Broadcast INFO messages flagged in previous think() ---
         if (pendingInfoTile != null) {
             broadcast(ArdaMessage.info(
                     getName(),
                     ENTITY_TILE,
                     pendingInfoTile[0], pendingInfoTile[1],
                     getX(), getY()));
-            // Add to own memory too
             addTileToMemory(pendingInfoTile[0], pendingInfoTile[1]);
             pendingInfoTile = null;
         }
@@ -144,12 +130,10 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
                     ENTITY_HOLE,
                     pendingInfoHole[0], pendingInfoHole[1],
                     getX(), getY()));
-            // Add to own memory too
             addHoleToMemory(pendingInfoHole[0], pendingInfoHole[1]);
             pendingInfoHole = null;
         }
 
-        // --- STEP 4: Broadcast fuel station whenever known ---
         if (fuelStationX != -1) {
             broadcast(ArdaMessage.info(
                     getName(),
@@ -159,33 +143,22 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
         }
     }
 
+
     @Override
     protected TWThought think() {
-        if (!phase1.isComplete()) {
-            TWThought t = phase1.think();
-            if (t != null) return t;
-            // Phase 1 just completed; fall through to Phase 2
-        }
-        // Sync fuel station from Phase 1 result (once)
-        if (fuelStationX == -1 && phase1.getFuelStation() != null) {
-            fuelStationX = phase1.getFuelStation().x;
-            fuelStationY = phase1.getFuelStation().y;
-        }
-        return customThink();
-    }
-    
-    private TWThought customThink() {
-
-        locateFuelStation();
 
         int ax = getX();
         int ay = getY();
+        boolean needsFuel = false;
 
-        double threshold = (fuelStationX == -1)
-                ? Parameters.defaultFuelLevel * FUEL_UNKNOWN_STATION_RATIO
-                : Parameters.defaultFuelLevel * FUEL_THRESHOLD_RATIO;
+        if (fuelStationX != -1) {
+            double distToStation = manhattan(ax, ay, fuelStationX, fuelStationY);
+            needsFuel = fuelLevel <= (distToStation + FUEL_SAFETY_BUFFER);
+        } else {
+            needsFuel = fuelLevel <= (Parameters.defaultFuelLevel * FUEL_UNKNOWN_STATION_RATIO);
+        }
 
-        if (fuelLevel <= threshold) {
+        if (needsFuel) {
             if (fuelStationX != -1) {
                 if (ax == fuelStationX && ay == fuelStationY) {
                     return new TWThought(TWAction.REFUEL, TWDirection.Z);
@@ -201,6 +174,11 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
 
         TWEntity currentCell = (TWEntity) getEnvironment()
                 .getObjectGrid().get(ax, ay);
+
+        if (currentCell instanceof TWFuelStation && fuelStationX == -1) {
+            fuelStationX = ax;
+            fuelStationY = ay;
+        }
 
         if (currentCell instanceof TWHole) {
             if (hasTile()) {
@@ -264,21 +242,6 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
                     break;
             }
         } catch (CellBlockedException e) {
-        }
-    }
-
-
-    private void locateFuelStation() {
-        if (fuelStationX != -1) return;
-        for (int x = 0; x < getEnvironment().getxDimension(); x++) {
-            for (int y = 0; y < getEnvironment().getyDimension(); y++) {
-                if (getEnvironment().getObjectGrid()
-                        .get(x, y) instanceof TWFuelStation) {
-                    fuelStationX = x;
-                    fuelStationY = y;
-                    return;
-                }
-            }
         }
     }
 
@@ -363,15 +326,11 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
         return TWDirection.Z;
     }
 
-    /** Sends a message to the environment broadcast channel. */
+
     private void broadcast(ArdaMessage msg) {
         getEnvironment().receiveMessage(msg);
     }
 
-    /**
-     * Adds a tile to memory only if it still exists on the live grid
-     * and is not already tracked.
-     */
     private void addTileToMemory(int x, int y) {
         Object obj = getEnvironment().getObjectGrid().get(x, y);
         if (obj instanceof TWTile) {
@@ -379,16 +338,13 @@ public class AmeyaGreedyBFSAgentWithMemoryMessage extends TWAgent {
         }
     }
 
-    /**
-     * Adds a hole to memory only if it still exists on the live grid
-     * and is not already tracked.
-     */
     private void addHoleToMemory(int x, int y) {
         Object obj = getEnvironment().getObjectGrid().get(x, y);
         if (obj instanceof TWHole) {
             customMemory.addTrackedHole(x, y, getEnvironment().schedule.getTime());
         }
     }
+
 
     @Override
     public String getName() {
