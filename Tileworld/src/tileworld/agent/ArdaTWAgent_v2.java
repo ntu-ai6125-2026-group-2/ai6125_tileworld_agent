@@ -15,10 +15,15 @@ public class ArdaTWAgent_v2 extends ArdaTWAgentSkeleton {
     private static final double MIN_FUEL_PERCENTAGE = 0.20; // Minimum fuel threshold as safety floor
 
     private final AstarPathGenerator pathGenerator;
+    private final ArdaCustomTWAgentMemory customMemory;
     private final int safetyMargin;
 
     public ArdaTWAgent_v2(String name, int xpos, int ypos, TWEnvironment env, double fuelLevel) {
         super(name, xpos, ypos, env, fuelLevel);
+        this.customMemory = new ArdaCustomTWAgentMemory(
+            this, env.schedule,
+                env.getxDimension(), env.getyDimension());
+        this.memory = customMemory;
         this.pathGenerator = new AstarPathGenerator(env, this, env.getxDimension() * env.getyDimension());
         // Calculate safety margin as a ratio of average grid dimension
         this.safetyMargin = (int) ((env.getxDimension() + env.getyDimension()) / 2 * SAFETY_MARGIN_RATIO);
