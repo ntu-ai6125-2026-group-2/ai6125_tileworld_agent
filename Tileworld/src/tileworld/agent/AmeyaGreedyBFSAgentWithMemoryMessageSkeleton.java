@@ -14,7 +14,7 @@ import tileworld.planners.TWPath;
 import tileworld.planners.TWPathStep;
 
 
-public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgentSkeleton {
+public class AmeyaGreedyBFSAgentWithMemoryMessageSkeleton extends TWAgentSkeleton {
 
     private static final double FUEL_UNKNOWN_STATION_RATIO = 0.30;
     private static final double FUEL_SAFETY_BUFFER         = Parameters.defaultFuelLevel * 0.20;
@@ -27,7 +27,7 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgentSkeleton {
     private int[] pendingDeleteHole = null;
 
 
-    public AmeyaGreedyBFSAgentWithMemoryMessageNew(String name, int xpos, int ypos,
+    public AmeyaGreedyBFSAgentWithMemoryMessageSkeleton(String name, int xpos, int ypos,
                                              TWEnvironment env, double fuelLevel) {
         super(name, xpos, ypos, env, fuelLevel);
 
