@@ -9,150 +9,93 @@ import tileworld.environment.TWFuelStation;
 import tileworld.environment.TWHole;
 import tileworld.environment.TWTile;
 import tileworld.exceptions.CellBlockedException;
-import tileworld.planners.GreedyBFSPathGenerator;
+import tileworld.planners.AmeyaGreedyBFSPathGenerator;
 import tileworld.planners.TWPath;
 import tileworld.planners.TWPathStep;
 
-public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
 
-    private static final String ENTITY_TILE        = "tile";
-    private static final String ENTITY_HOLE        = "hole";
-    private static final String ENTITY_FUEL        = "fuel";
-    private static final String ENTITY_DELETE_TILE = "delete_tile";
-    private static final String ENTITY_DELETE_HOLE = "delete_hole";
+public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgentSkeleton {
 
-    private static final double FUEL_THRESHOLD_RATIO       = 0.70;
-    private static final double FUEL_UNKNOWN_STATION_RATIO = 0.80;
-    private static final int    CARRY_CAPACITY             = 3;
+    private static final double FUEL_UNKNOWN_STATION_RATIO = 0.30;
+    private static final double FUEL_SAFETY_BUFFER         = Parameters.defaultFuelLevel * 0.20;
     private static final double CARRY_BIAS_DISTANCE        = 5.0;
 
-    private final String name;
-    private final GreedyBFSPathGenerator pathGenerator;
+    private final AmeyaGreedyBFSPathGenerator pathGenerator;
     private final AmeyaCustomTWAgentMemory customMemory;
 
-    private int fuelStationX = -1;
-    private int fuelStationY = -1;
-
     private int[] pendingDeleteTile = null;
-    private int[] pendingDeleteHole = null; 
-    private int[] pendingInfoTile   = null; 
-    private int[] pendingInfoHole   = null; 
+    private int[] pendingDeleteHole = null;
 
 
     public AmeyaGreedyBFSAgentWithMemoryMessageNew(String name, int xpos, int ypos,
-                                            TWEnvironment env, double fuelLevel) {
-        super(xpos, ypos, env, fuelLevel);
-        this.name = name;
+                                             TWEnvironment env, double fuelLevel) {
+        super(name, xpos, ypos, env, fuelLevel);
 
         this.customMemory = new AmeyaCustomTWAgentMemory(
                 this, env.schedule,
                 env.getxDimension(), env.getyDimension());
         this.memory = customMemory;
 
-        this.pathGenerator = new GreedyBFSPathGenerator(
+        this.pathGenerator = new AmeyaGreedyBFSPathGenerator(
                 env, this, env.getxDimension() * env.getyDimension());
     }
 
 
     @Override
-    public void communicate() {
-
-        for (Message raw : getEnvironment().getMessages()) {
-            if (getName().equals(raw.getFrom())) continue;
-            if (!(raw instanceof ArdaMessage)) continue;
-
-            ArdaMessage msg = (ArdaMessage) raw;
-
-            if (msg.getType() != ArdaMessage.MessageType.INFO) continue;
-
-            String entity = msg.getEntityType();
-            int mx = msg.getX();
-            int my = msg.getY();
-
-            if (ENTITY_TILE.equals(entity)) {
-                addTileToMemory(mx, my);
-
-            } else if (ENTITY_HOLE.equals(entity)) {
-                addHoleToMemory(mx, my);
-
-            } else if (ENTITY_FUEL.equals(entity)) {
-                if (fuelStationX == -1) {
-                    fuelStationX = mx;
-                    fuelStationY = my;
-                }
-
-            } else if (ENTITY_DELETE_TILE.equals(entity)) {
-                customMemory.removeTrackedTile(mx, my);
-                customMemory.removeAgentPercept(mx, my);
-
-            } else if (ENTITY_DELETE_HOLE.equals(entity)) {
-                customMemory.removeTrackedHole(mx, my);
-                customMemory.removeAgentPercept(mx, my);
-            }
-        }
+    protected void customCommunicate() {
 
         if (pendingDeleteTile != null) {
-            broadcast(ArdaMessage.info(
-                    getName(),
-                    ENTITY_DELETE_TILE,
-                    pendingDeleteTile[0], pendingDeleteTile[1],
-                    getX(), getY()));
+            broadcastInfo(ENTITY_DELETE_TILE,
+                    pendingDeleteTile[0], pendingDeleteTile[1]);
             customMemory.removeTrackedTile(pendingDeleteTile[0], pendingDeleteTile[1]);
             customMemory.removeAgentPercept(pendingDeleteTile[0], pendingDeleteTile[1]);
             pendingDeleteTile = null;
         }
 
         if (pendingDeleteHole != null) {
-            broadcast(ArdaMessage.info(
-                    getName(),
-                    ENTITY_DELETE_HOLE,
-                    pendingDeleteHole[0], pendingDeleteHole[1],
-                    getX(), getY()));
+            broadcastInfo(ENTITY_DELETE_HOLE,
+                    pendingDeleteHole[0], pendingDeleteHole[1]);
             customMemory.removeTrackedHole(pendingDeleteHole[0], pendingDeleteHole[1]);
             customMemory.removeAgentPercept(pendingDeleteHole[0], pendingDeleteHole[1]);
             pendingDeleteHole = null;
         }
+    }
 
-        if (pendingInfoTile != null) {
-            broadcast(ArdaMessage.info(
-                    getName(),
-                    ENTITY_TILE,
-                    pendingInfoTile[0], pendingInfoTile[1],
-                    getX(), getY()));
-            addTileToMemory(pendingInfoTile[0], pendingInfoTile[1]);
-            pendingInfoTile = null;
-        }
 
-        if (pendingInfoHole != null) {
-            broadcast(ArdaMessage.info(
-                    getName(),
-                    ENTITY_HOLE,
-                    pendingInfoHole[0], pendingInfoHole[1],
-                    getX(), getY()));
-            addHoleToMemory(pendingInfoHole[0], pendingInfoHole[1]);
-            pendingInfoHole = null;
-        }
+    @Override
+    protected void handleTeamMessage(ArdaMessage msg) {
+        if (msg.getType() != ArdaMessage.MessageType.INFO) return;
 
-        if (fuelStationX != -1) {
-            broadcast(ArdaMessage.info(
-                    getName(),
-                    ENTITY_FUEL,
-                    fuelStationX, fuelStationY,
-                    getX(), getY()));
+        String entity = msg.getEntityType();
+        int mx = msg.getX();
+        int my = msg.getY();
+
+        if (ENTITY_DELETE_TILE.equals(entity)) {
+            customMemory.removeTrackedTile(mx, my);
+            customMemory.removeAgentPercept(mx, my);
+
+        } else if (ENTITY_DELETE_HOLE.equals(entity)) {
+            customMemory.removeTrackedHole(mx, my);
+            customMemory.removeAgentPercept(mx, my);
         }
     }
 
+
     @Override
-    protected TWThought think() {
+    protected TWThought customThink() {
 
         int ax = getX();
         int ay = getY();
 
-        double threshold = (fuelStationX == -1)
-                ? Parameters.defaultFuelLevel * FUEL_UNKNOWN_STATION_RATIO
-                : Parameters.defaultFuelLevel * FUEL_THRESHOLD_RATIO;
+        boolean needsFuel;
+        if (fuelStationX != -1) {
+            double distToStation = manhattan(ax, ay, fuelStationX, fuelStationY);
+            needsFuel = fuelLevel <= (distToStation + FUEL_SAFETY_BUFFER);
+        } else {
+            needsFuel = fuelLevel <= (Parameters.defaultFuelLevel * FUEL_UNKNOWN_STATION_RATIO);
+        }
 
-        if (fuelLevel <= threshold) {
+        if (needsFuel) {
             if (fuelStationX != -1) {
                 if (ax == fuelStationX && ay == fuelStationY) {
                     return new TWThought(TWAction.REFUEL, TWDirection.Z);
@@ -165,7 +108,6 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
                             getEnvironment().getxDimension() / 2,
                             getEnvironment().getyDimension() / 2));
         }
-
         TWEntity currentCell = (TWEntity) getEnvironment()
                 .getObjectGrid().get(ax, ay);
 
@@ -174,28 +116,24 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
             fuelStationY = ay;
         }
 
-        if (currentCell instanceof TWHole) {
-            if (hasTile()) {
-                return new TWThought(TWAction.PUTDOWN, TWDirection.Z);
-            } else {
-                pendingInfoHole = new int[]{ax, ay};
-            }
+        if (currentCell instanceof TWHole && hasTile()) {
+            return new TWThought(TWAction.PUTDOWN, TWDirection.Z);
         }
 
-        if (currentCell instanceof TWTile) {
-            if (carriedTiles.size() < CARRY_CAPACITY) {
-                return new TWThought(TWAction.PICKUP, TWDirection.Z);
-            } else {
-                pendingInfoTile = new int[]{ax, ay};
-            }
+        if (currentCell instanceof TWTile && carriedTiles.size() < CARRY_CAPACITY) {
+            return new TWThought(TWAction.PICKUP, TWDirection.Z);
         }
 
         AmeyaCustomTWAgentMemory.MemoryEntry target = selectTarget();
         if (target != null) {
+            setIntention(
+                    carriedTiles.size() > 0 ? ENTITY_HOLE : ENTITY_TILE,
+                    target.x, target.y);
             return new TWThought(TWAction.MOVE,
                     getPathDirection(target.x, target.y));
         }
 
+        clearIntention();
         return new TWThought(TWAction.MOVE, getExploreDirection());
     }
 
@@ -239,7 +177,6 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
         }
     }
 
-
     private AmeyaCustomTWAgentMemory.MemoryEntry selectTarget() {
         List<AmeyaCustomTWAgentMemory.MemoryEntry> tiles = customMemory.getKnownTiles();
         List<AmeyaCustomTWAgentMemory.MemoryEntry> holes = customMemory.getKnownHoles();
@@ -278,10 +215,6 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
         return best;
     }
 
-    private double manhattan(int x1, int y1, int x2, int y2) {
-        return Math.abs(x1 - x2) + Math.abs(y1 - y2);
-    }
-
 
     private TWDirection getPathDirection(int tx, int ty) {
         TWPath path = pathGenerator.findPath(getX(), getY(), tx, ty);
@@ -318,30 +251,5 @@ public class AmeyaGreedyBFSAgentWithMemoryMessageNew extends TWAgent {
             }
         }
         return TWDirection.Z;
-    }
-
-
-    private void broadcast(ArdaMessage msg) {
-        getEnvironment().receiveMessage(msg);
-    }
-
-    private void addTileToMemory(int x, int y) {
-        Object obj = getEnvironment().getObjectGrid().get(x, y);
-        if (obj instanceof TWTile) {
-            customMemory.addTrackedTile(x, y, getEnvironment().schedule.getTime());
-        }
-    }
-
-
-    private void addHoleToMemory(int x, int y) {
-        Object obj = getEnvironment().getObjectGrid().get(x, y);
-        if (obj instanceof TWHole) {
-            customMemory.addTrackedHole(x, y, getEnvironment().schedule.getTime());
-        }
-    }
-
-    @Override
-    public String getName() {
-        return name;
     }
 }
