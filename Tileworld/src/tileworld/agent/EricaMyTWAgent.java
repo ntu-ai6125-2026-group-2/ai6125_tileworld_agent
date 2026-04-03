@@ -15,18 +15,19 @@ public class MyTWAgent extends TWAgentSkeleton {
     private static final int MEMORY_LIFESPAN = 100; 
 
     private final AstarPathGenerator astar;
-    private final Map<Int2D, Long> lastSeenTime = new HashMap<>();
+    private MyCustomMemory myMemory; // Integrated Custom Memory
     
     private final int[][] corners;
     private int cornerIdx = 0;
     private final boolean isLargeMap;
 
     public MyTWAgent(String name, int x, int y, TWEnvironment env, double fuel) {
-        super(name, x, y, env, fuel); // Inherits agentName, x, y, env, fuel
+        super(name, x, y, env, fuel);
         this.astar = new AstarPathGenerator(env, this, 2000); 
-        
-        // Dynamic Check: Is this a big map?
         this.isLargeMap = (env.getxDimension() >= 60 || env.getyDimension() >= 60);
+        
+        // Initialize our custom memory with the lifespan defined above
+        this.myMemory = new MyCustomMemory(this, env.schedule, env.getxDimension(), env.getyDimension(), MEMORY_LIFESPAN);
         
         int maxX = env.getxDimension() - 1;
         int maxY = env.getyDimension() - 1;
@@ -36,8 +37,6 @@ public class MyTWAgent extends TWAgentSkeleton {
     @Override
     protected void customCommunicate() {
         int r = Parameters.defaultSensorRange;
-        long now = getEnvironment().schedule.getSteps();
-
         for (int dx = -r; dx <= r; dx++) {
             for (int dy = -r; dy <= r; dy++) {
                 int cx = getX() + dx, cy = getY() + dy;
@@ -49,8 +48,8 @@ public class MyTWAgent extends TWAgentSkeleton {
                     this.fuelStationY = cy;
                     broadcast(ArdaMessage.info(agentName, "fuel", cx, cy, getX(), getY()));
                 } else if (o instanceof TWTile || o instanceof TWHole) {
-                    lastSeenTime.put(new Int2D(cx, cy), now);
                     String type = (o instanceof TWTile) ? "tile" : "hole";
+                    // Inform teammates about what we see
                     broadcast(ArdaMessage.info(agentName, type, cx, cy, getX(), getY()));
                 }
             }
@@ -59,9 +58,9 @@ public class MyTWAgent extends TWAgentSkeleton {
 
     @Override
     protected void handleTeamMessage(ArdaMessage am) {
+        // If a teammate picked it up, purge it from our local memory immediately
         if (am.getEntityType().startsWith("delete")) {
-            getMemory().getMemoryGrid().set(am.getX(), am.getY(), null);
-            lastSeenTime.remove(new Int2D(am.getX(), am.getY()));
+            myMemory.clearLocation(am.getX(), am.getY());
         } else if (am.getEntityType().equals("fuel")) {
             this.fuelStationX = am.getX(); 
             this.fuelStationY = am.getY();
@@ -70,12 +69,13 @@ public class MyTWAgent extends TWAgentSkeleton {
 
     @Override
     protected TWThought customThink() {
+        // 1. ACTIVE CLEANUP: Sync memory with current sensors
         updateLocalTimestamps();
         
         double fuelLevel = getFuelLevel();
         double fuelRatio = fuelLevel / Parameters.defaultFuelLevel;
 
-        // 1. REFUELING (Priority)
+        // 2. REFUEL LOGIC
         if (fuelStationX != -1) {
             double dist = manhattan(getX(), getY(), fuelStationX, fuelStationY);
             double safetyPadding = isLargeMap ? 15 : 5;
@@ -86,26 +86,25 @@ public class MyTWAgent extends TWAgentSkeleton {
             }
         }
 
-        // 2. IMMEDIATE ACTIONS 
+        // 3. IMMEDIATE ACTIONS (Pick up/Put down if standing on target)
         Object here = getEnvironment().getObjectGrid().get(getX(), getY());
         if (here instanceof TWTile && carriedTiles.size() < CARRY_CAPACITY) 
             return new TWThought(TWAction.PICKUP, TWDirection.Z);
         if (here instanceof TWHole && !carriedTiles.isEmpty()) 
             return new TWThought(TWAction.PUTDOWN, TWDirection.Z);
 
-        // 3. TARGETING 
+        // 4. TARGETING (Using Freshness Factor)
         Int2D target = findBestTarget();
         if (target != null) return navigate(target.x, target.y);
 
-        // 4. PATROL
+        // 5. PATROL (If nothing to do)
         return patrol();
     }
 
     private Int2D findBestTarget() {
         Int2D best = null;
-        double minScore = Double.MAX_VALUE;
-        long now = getEnvironment().schedule.getSteps();
-        
+        double maxUtility = -1.0;
+        double now = getEnvironment().schedule.getTime();
         int searchRange = isLargeMap ? 30 : 100; 
 
         for (int x = 0; x < getEnvironment().getxDimension(); x++) {
@@ -113,18 +112,26 @@ public class MyTWAgent extends TWAgentSkeleton {
                 double dist = manhattan(getX(), getY(), x, y);
                 if (isLargeMap && dist > searchRange) continue;
 
-                Object o = getMemory().getMemoryGrid().get(x, y);
+                // Check our memory grid
+                Object o = myMemory.getMemoryGrid().get(x, y);
                 if (o == null) continue;
 
-                Long seenAt = lastSeenTime.get(new Int2D(x, y));
-                if (seenAt != null && (now - seenAt) > MEMORY_LIFESPAN) continue;
+                // Calculate Freshness from our internal HashMap in MyCustomMemory
+                double freshness = myMemory.getFreshness(x, y, now);
+                if (freshness <= 0) continue;
 
-                boolean isTarget = (o instanceof TWTile && carriedTiles.size() < CARRY_CAPACITY) ||
-                                   (o instanceof TWHole && !carriedTiles.isEmpty());
-                if (isTarget) {
-                    double score = (o instanceof TWHole) ? dist - 5 : dist; 
-                    if (score < minScore) {
-                        minScore = score;
+                boolean isValidType = (o instanceof TWTile && carriedTiles.size() < CARRY_CAPACITY) ||
+                                     (o instanceof TWHole && !carriedTiles.isEmpty());
+                
+                if (isValidType) {
+                    // Utility Formula: Inverse Distance weighted by Information Freshness
+                    double utility = (100.0 / (dist + 1.0)) * freshness;
+                    
+                    // Priority Bias: Scoring (Holes) is worth more than Collecting (Tiles)
+                    if (o instanceof TWHole) utility *= 2.5; 
+
+                    if (utility > maxUtility) {
+                        maxUtility = utility;
                         best = new Int2D(x, y);
                     }
                 }
@@ -133,16 +140,19 @@ public class MyTWAgent extends TWAgentSkeleton {
         return best;
     }
 
+    /**
+     * Scans the current sensor range to perform Active Cleanup.
+     * If a cell is empty in reality but has an object in memory, it is purged.
+     */
     private void updateLocalTimestamps() {
         int r = Parameters.defaultSensorRange;
-        long now = getEnvironment().schedule.getSteps();
         for (int dx = -r; dx <= r; dx++) {
             for (int dy = -r; dy <= r; dy++) {
                 int cx = getX() + dx, cy = getY() + dy;
                 if (getEnvironment().isValidLocation(cx, cy)) {
-                    lastSeenTime.put(new Int2D(cx, cy), now);
+                    // If the sensor sees nothing, but memory thinks there's something...
                     if (getEnvironment().getObjectGrid().get(cx, cy) == null) {
-                        getMemory().getMemoryGrid().set(cx, cy, null);
+                        myMemory.clearLocation(cx, cy); // Purge ghost
                     }
                 }
             }
@@ -158,17 +168,17 @@ public class MyTWAgent extends TWAgentSkeleton {
                 case REFUEL: refuel(); break;
                 case PICKUP:
                     pickUpTile((TWTile) getEnvironment().getObjectGrid().get(ax, ay));
-                    getMemory().getMemoryGrid().set(ax, ay, null);
+                    myMemory.clearLocation(ax, ay); // Update local memory immediately
                     broadcast(ArdaMessage.info(agentName, "delete_tile", ax, ay, ax, ay));
                     break;
                 case PUTDOWN:
                     putTileInHole((TWHole) getEnvironment().getObjectGrid().get(ax, ay));
-                    getMemory().getMemoryGrid().set(ax, ay, null);
+                    myMemory.clearLocation(ax, ay); // Update local memory immediately
                     broadcast(ArdaMessage.info(agentName, "delete_hole", ax, ay, ax, ay));
                     break;
             }
         } catch (CellBlockedException e) {
-            // Re-evaluates next tick
+            // Path is blocked, agent will recalculate next tick
         }
     }
 
@@ -180,6 +190,7 @@ public class MyTWAgent extends TWAgentSkeleton {
         TWPath path = astar.findPath(getX(), getY(), tx, ty);
         if (path != null && path.hasNext()) return new TWThought(TWAction.MOVE, path.popNext().getDirection());
         
+        // Simple Manhattan fallback if A* fails
         int dx = Integer.compare(tx, getX()), dy = Integer.compare(ty, getY());
         TWDirection d = (dx != 0) ? (dx > 0 ? TWDirection.E : TWDirection.W) : (dy > 0 ? TWDirection.S : TWDirection.N);
         return new TWThought(TWAction.MOVE, d);
@@ -196,7 +207,12 @@ public class MyTWAgent extends TWAgentSkeleton {
     }
 
     @Override
-    public String getName() {
-        return this.agentName;
+    public TWAgentWorkingMemory getMemory() { 
+        return this.myMemory; 
+    }
+
+    @Override
+    public String getName() { 
+        return this.agentName; 
     }
 }
