@@ -14,9 +14,10 @@ import tileworld.planners.TWPath;
 
 public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
 
-    private static final double FUEL_THRESHOLD = 0.25;  // used for safeUsableFuel / EMA surplus (not for main refuel trigger)
-    private static final int    REFUEL_BUFFER  = 5;    // extra fuel margin above distToFS before triggering refuel
-    private static final double DETOUR_LIMIT   = 10.0;  // max Manhattan detour for opp. targets
+    private static final double FUEL_THRESHOLD              = 0.25;  // used for safeUsableFuel / EMA surplus (not for main refuel trigger)
+    private static final int    REFUEL_BUFFER               = 25;    // extra fuel margin above distToFS before triggering refuel
+    private static final double OPPORTUNISTIC_REFUEL_THRESH = 0.85;  // only swing by FS if below 85% fuel
+    private static final double DETOUR_LIMIT                = 10.0;  // max Manhattan detour for opp. targets
     private static final double EMA_ALPHA      = 0.2;   // EMA weight for newest observation
     private static final double NUDGE_FACTOR   = 1.05;  // expand R 5 % after surplus-fuel loop
     private static final double SURPLUS_FACTOR = 1.2;   // "surplus" threshold multiplier
@@ -39,6 +40,12 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
     private int    cornersThisCycle = 0;
     private double smoothedRatio    = 1.0; // EMA of (cornersVisited / 4)
     private double fuelAtLastRefuel = -1;  // fuel at the start of previous tick
+
+    // State for opportunistic on-path FS detour + return-to-origin
+    private int     detourOriginX     = -1;  // position when the on-path detour started
+    private int     detourOriginY     = -1;
+    private boolean detouringToFS     = false; // currently redirected to FS mid-patrol
+    private boolean returningToOrigin = false; // heading back after refueling
 
     // =========================================================================
     // CONSTRUCTOR
@@ -102,7 +109,7 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
      *
      * Example  fuel station at map corner (0, 0), R=46:
      *   Centered start:  xMin=-46, xMax=46
-     *   Shift right +46: xMin=  0, xMax=92   full 2R width preserved
+     *   Shift right +46: xMin=  0, xMax=92  full 2R width preserved
      *   Fuel station sits at corners[0] = (xMin, yMin)
      */
     private void recomputeAnchoredCorners() {
@@ -178,7 +185,7 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
             anchoredR = newR;
             recomputeAnchoredCorners();
             // Keep cornerIdx: continue patrol direction, no re-snap on R change
-            System.out.println(agentName + " [Phase2] R â†’ " + anchoredR
+            System.out.println(agentName + " [Phase2] R " + anchoredR
                 + "  corners=" + cornersThisCycle
                 + "  smoothedRatio=" + String.format("%.2f", smoothedRatio));
         }
@@ -221,13 +228,18 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
         int ax = getX(), ay = getY();
 
         // 1. Distance-based refuel decision.
-        //    Head to FS when fuel less than equal to distToFS + REFUEL_BUFFER.
+        //    Head to FS when fuel less than or equal to distToFS + REFUEL_BUFFER.
         //    While en-route, fill holes that lie on the direct path (zero extra cost),
         //    and pick up tiles that are strictly on the way (no added fuel).
         if (needsRefuel(ax, ay)) {
+            // A proper refuel trip supersedes any opportunistic detour in progress
+            detouringToFS     = false;
+            returningToOrigin = false;
+            detourOriginX     = -1;
+            detourOriginY     = -1;
             clearIntention();
 
-            // Already at FS then refuel immediately
+            // Already at FS to refuel immediately
             if (ax == fuelStationX && ay == fuelStationY)
                 return new TWThought(TWAction.REFUEL, TWDirection.Z);
 
@@ -238,7 +250,7 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
             if (here instanceof TWTile && carriedTiles.size() < CARRY_CAPACITY)
                 return new TWThought(TWAction.PICKUP, TWDirection.Z);
 
-            // On-path hole: carrying tiles then fill any hole that lies on the route to FS
+            // On-path hole: carrying tiles to fill any hole that lies on the route to FS
             if (hasTile()) {
                 int[] h = findOnPathToFS(ax, ay, true);
                 if (h != null) {
@@ -247,7 +259,7 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
                 }
             }
 
-            // On-path tile: not full then pick up any tile on the direct route to FS
+            // On-path tile: not full go to pick up any tile on the direct route to FS
             if (carriedTiles.size() < CARRY_CAPACITY) {
                 int[] t = findOnPathToFS(ax, ay, false);
                 if (t != null && !isClaimedByCloserAgent(ENTITY_TILE, t[0], t[1])) {
@@ -272,9 +284,27 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
         }
         // Patrol route passes directly through the FS — top up fuel for free rather
         // than making a dedicated refuel trip later.
+        // If we arrived via an on-path detour, schedule a return to detour origin.
         if (getEnvironment().inFuelStation(this) && fuelLevel < Parameters.defaultFuelLevel) {
+            if (detouringToFS) {
+                detouringToFS     = false;
+                returningToOrigin = (detourOriginX >= 0);
+            }
             clearIntention();
             return new TWThought(TWAction.REFUEL, TWDirection.Z);
+        }
+
+        // 2.5. Return to patrol position after an opportunistic FS detour.
+        //      Resumes patrol from the exact cell where the detour was triggered.
+        if (returningToOrigin && detourOriginX >= 0) {
+            if (ax == detourOriginX && ay == detourOriginY) {
+                returningToOrigin = false;
+                detourOriginX     = -1;
+                detourOriginY     = -1;
+            } else {
+                clearIntention();
+                return new TWThought(TWAction.MOVE, navigate(detourOriginX, detourOriginY));
+            }
         }
 
         // 3. Opportunistic: nearby hole in box (claim-checked)
@@ -311,14 +341,31 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
         }
 
         // 5. Opportunistic refuel: FS lies on the direct path to the next patrol corner.
-        //    d(currentthenFS) + d(FSthencorner) less than equal to d(currentthencorner)  then  zero detour cost.
-        //    Divert through FS now so no dedicated refuel trip is needed later.
-        if (fuelLevel < Parameters.defaultFuelLevel) {
-            int[] nextCorner  = corners[cornerIdx];
+        //    Two guards reduce false triggers:
+        //      a) Bounding-box check: FS must sit inside the axis-aligned rectangle
+        //         spanned by current position and the next corner — prevents cases
+        //         where Manhattan arithmetic says "zero detour" but the FS is visually
+        //         off to the side.
+        //      b) Fuel threshold: only worth stopping if below 85% fuel; no point
+        //         topping up when nearly full.
+        //    After refueling the agent returns to where it detoured from (see 2.5).
+        if (!returningToOrigin
+                && fuelLevel < Parameters.defaultFuelLevel * OPPORTUNISTIC_REFUEL_THRESH) {
+            int[]  nextCorner  = corners[cornerIdx];
             double detourViaFS = manhattan(ax, ay, fuelStationX, fuelStationY)
                                + manhattan(fuelStationX, fuelStationY, nextCorner[0], nextCorner[1])
                                - manhattan(ax, ay, nextCorner[0], nextCorner[1]);
-            if (detourViaFS <= 0) {
+            boolean inBoundingBox =
+                (Math.min(ax, nextCorner[0]) <= fuelStationX
+                    && fuelStationX <= Math.max(ax, nextCorner[0]))
+             && (Math.min(ay, nextCorner[1]) <= fuelStationY
+                    && fuelStationY <= Math.max(ay, nextCorner[1]));
+            if (detourViaFS <= 0 && inBoundingBox) {
+                if (!detouringToFS) {          // record origin only on first trigger
+                    detourOriginX = ax;
+                    detourOriginY = ay;
+                    detouringToFS = true;
+                }
                 clearIntention();
                 return new TWThought(TWAction.MOVE, navigate(fuelStationX, fuelStationY));
             }
@@ -420,7 +467,7 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
 
     /**
      * Returns true when the agent should start heading to the fuel station.
-     * Triggers when fuel less than equal to (Manhattan distance to FS) + REFUEL_BUFFER,
+     * Triggers when fuel less than or equal to (Manhattan distance to FS) + REFUEL_BUFFER,
      * giving just enough margin for small opportunistic detours on the way.
      */
     private boolean needsRefuel(int ax, int ay) {
@@ -434,7 +481,7 @@ public class HarshdeepPerimeterAgent extends TWAgentSkeleton {
      * Scans the agent's memory grid for the nearest hole (lookForHole=true)
      * or tile (lookForHole=false) that lies on the direct path to the fuel station
      * — defined as zero extra Manhattan cost:
-     *   d(current then obj) + d(obj then FS) less than equal to d(current then FS)
+     *   d(current to obj) + d(obj to FS) less than or equal to d(current to FS)
      *
      * Also verifies the object still exists in the live environment grid (not stale).
      *
